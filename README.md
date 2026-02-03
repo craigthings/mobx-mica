@@ -2,19 +2,13 @@
 
 A minimal library that brings MobX reactivity to React components with a familiar class-based API.
 
-Full access to the React ecosystem. Better access to vanilla JS libraries. Simpler DX than either.
+Full access to the React ecosystem. Better access to vanilla JS libraries. Simpler DX for either.
 
 ## Why
 
-React hooks solve real problems—stale closures, dependency tracking, memoization. But MobX already solves those problems differently. If you're using MobX, hooks add complexity without benefit.
+React hooks solve real problems—stale closures, dependency tracking, memoization. MobX already solves those problems. So if you're using MobX, hooks add complexity without benefit.
 
-This library lets you write components the way most programming languages work: mutable state, stable references, computed getters, direct method calls.
-
-## Install
-
-```bash
-npm install mobx mobx-react-lite mobx-view
-```
+This library lets you write components in a way that is more familiar to common programming patterns outside the React ecosystem: mutable state, stable references, computed getters, direct method calls.
 
 ## Basic Example
 
@@ -88,8 +82,24 @@ onMount() {
 | Method | When |
 |--------|------|
 | `onCreate()` | Instance created, props available |
-| `onMount()` | Component mounted. Return a cleanup function. |
+| `onMount()` | Component mounted. Return a cleanup function (optional). |
+| `onUnmount()` | Component unmounting. Called after `onMount` cleanup (optional). |
 | `render()` | Standard React render |
+
+### Props Reactivity
+
+`this.props` is reactive—MobX tracks access automatically. Use `reaction` or `autorun` to respond to prop changes:
+
+```tsx
+onMount() {
+  return reaction(
+    () => this.props.filter,
+    (filter) => this.applyFilter(filter)
+  );
+}
+```
+
+Or access props directly in `render()` and MobX handles re-renders when they change.
 
 ## Patterns
 
@@ -314,7 +324,8 @@ Base class for view components.
 |-----------------|-------------|
 | `props` | Current props (reactive) |
 | `onCreate()` | Called when instance created |
-| `onMount()` | Called on mount, return cleanup function |
+| `onMount()` | Called on mount, return cleanup function (optional) |
+| `onUnmount()` | Called on unmount, after `onMount` cleanup (optional) |
 | `render()` | Return JSX (optional if using template) |
 | `ref<T>()` | Create a ref for DOM elements |
 

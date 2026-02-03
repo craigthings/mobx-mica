@@ -7,6 +7,7 @@ export class View<P = {}> {
 
   onCreate?(): void;
   onMount?(): void | (() => void);
+  onUnmount?(): void;
 
   ref<T extends HTMLElement = HTMLElement>(): { current: T | null } {
     return { current: null };
@@ -122,8 +123,18 @@ export function createView<V extends View<any>>(
     });
 
     useEffect(() => {
-      return vm.onMount?.();
+      const cleanup = vm.onMount?.();
+      return () => {
+        cleanup?.();
+        vm.onUnmount?.();
+      };
     }, []);
+
+    if (!template && !vm.render) {
+      throw new Error(
+        `${ViewClass.name}: Missing render() method. Either define render() in your View class or pass a template function to createView().`
+      );
+    }
 
     return template ? template(vm) : vm.render!();
   });
