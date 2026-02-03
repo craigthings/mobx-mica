@@ -1,8 +1,16 @@
 {
   "name": "mobx-view",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A minimal library that brings MobX reactivity to React components with a familiar class-based API",
   "author": "",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/craigthings/mobx-view"
+  },
+  "homepage": "https://github.com/craigthings/mobx-view#readme",
+  "bugs": {
+    "url": "https://github.com/craigthings/mobx-view/issues"
+  },
   "license": "MIT",
   "keywords": [
     "react",

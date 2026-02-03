@@ -10,6 +10,14 @@ React hooks solve real problems—stale closures, dependency tracking, memoizati
 
 This library lets you write components in a way that is more familiar to common programming patterns outside the React ecosystem: mutable state, stable references, computed getters, direct method calls.
 
+## Installation
+
+```bash
+npm install mobx-view
+```
+
+Requires React 17+, MobX 6+, and mobx-react-lite 3+.
+
 ## Basic Example
 
 ```tsx
