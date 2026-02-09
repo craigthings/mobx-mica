@@ -1,9 +1,9 @@
 import { useRef, useEffect, useLayoutEffect, forwardRef as reactForwardRef, type Ref, type JSX } from 'react';
-import { makeObservable, observable, computed, action, AnnotationsMap, type IObservableValue } from 'mobx';
+import { makeObservable, observable, computed, action, runInAction, AnnotationsMap, type IObservableValue } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import {
-  type BehaviorInstance,
-  createBehaviorInstance,
+  type BehaviorEntry,
+  isBehavior,
   layoutMountBehavior,
   mountBehavior,
   unmountBehavior,
@@ -38,13 +38,13 @@ export class View<P = {}> {
   }
   
   set props(value: P) {
-    this._propsBox.set(value);
+    runInAction(() => this._propsBox.set(value));
   }
 
   forwardRef?: Ref<any>;
 
   /** @internal */
-  _behaviors: BehaviorInstance[] = [];
+  _behaviors: BehaviorEntry[] = [];
 
   onCreate?(): void;
   onLayoutMount?(): void | (() => void);
@@ -55,15 +55,15 @@ export class View<P = {}> {
     return { current: null };
   }
 
-  /**
-   * Creates and manages a behavior instance with automatic lifecycle handling.
-   * The behavior will be made observable by default and its lifecycle methods
-   * will be called in sync with the parent View.
-   */
-  protected use<T extends object>(Thing: new () => T, options?: { observable?: boolean }): T {
-    const { instance, entry } = createBehaviorInstance(Thing, options);
-    this._behaviors.push(entry);
-    return instance;
+  /** @internal - Scan own properties for behavior instances and register them */
+  _collectBehaviors(): void {
+    for (const key of Object.keys(this)) {
+      if (key.startsWith('_')) continue;
+      const value = (this as any)[key];
+      if (isBehavior(value)) {
+        this._behaviors.push({ instance: value });
+      }
+    }
   }
 
   /** @internal */
@@ -93,8 +93,8 @@ export class View<P = {}> {
 /** Alias for View - use when separating ViewModel from template */
 export { View as ViewModel };
 
-// Re-export Behavior from behavior module
-export { Behavior } from './behavior';
+// Re-export from behavior module
+export { createBehavior, Behavior } from './behavior';
 
 // Base class members that should not be made observable
 const BASE_EXCLUDES = new Set([
@@ -107,9 +107,9 @@ const BASE_EXCLUDES = new Set([
   'onUnmount',
   'render', 
   'ref', 
-  'use',
   'constructor',
   '_behaviors',
+  '_collectBehaviors',
   '_layoutMountBehaviors',
   '_mountBehaviors',
   '_unmountBehaviors',
@@ -150,6 +150,12 @@ function makeViewObservable<T extends View>(instance: T, autoBind: boolean) {
 
     // Skip functions (these are handled in the prototype walk)
     if (typeof value === 'function') continue;
+
+    // Skip behavior instances (they're already observable)
+    if (isBehavior(value)) {
+      (annotations as any)[key] = observable.ref;
+      continue;
+    }
 
     // Use observable.ref for ref-like objects to preserve identity
     if (isRefLike(value)) {
@@ -214,6 +220,9 @@ export function createView<V extends View<any>>(
       // Props is always reactive via observable.box (works with all decorator modes)
       instance._propsBox = observable.box(props, { deep: false });
       instance.forwardRef = ref;
+
+      // Collect behavior instances from properties (must happen before makeObservable)
+      instance._collectBehaviors();
 
       if (autoObservable) {
         makeViewObservable(instance, true);

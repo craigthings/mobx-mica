@@ -1,6 +1,7 @@
 import { reaction } from 'mobx';
 import { View, createView } from '../src';
 import { Counter } from './Counter';
+import WindowSizeBehavior from './WindowSizeBehavior';
 
 // ─── HMR Test ───
 // To test child edit doesn't affect parent:
@@ -21,26 +22,12 @@ interface TodoProps {
   onCountChange?: (count: number) => void;
 }
 
-// Example Behavior: tracks window size reactively
-class WindowSizeBehavior {
-  width = window.innerWidth;
-  height = window.innerHeight;
-
-  onMount() {
-    const handler = () => {
-      this.width = window.innerWidth;
-      this.height = window.innerHeight;
-    };
-    window.addEventListener('resize', handler);
-    return () => window.removeEventListener('resize', handler);
-  }
-}
-
-class TodoView extends View<TodoProps> {
+class Todo extends View<TodoProps> {
   todos: TodoItem[] = [];
   input = '';
   inputRef = this.ref<HTMLInputElement>();
-  windowSize = this.use(WindowSizeBehavior);
+  // Just instantiate with new - View auto-detects behaviors
+  windowSize = new WindowSizeBehavior(768);
 
   get completedCount() {
     return this.todos.filter(t => t.done).length;
@@ -102,10 +89,13 @@ class TodoView extends View<TodoProps> {
         </ul>
         <p className="count">{this.completedCount} of {this.todos.length} done</p>
         <Counter />
-        <p className="window-size">{this.windowSize.width}×{this.windowSize.height}</p>
+        <p className="window-size">
+          {this.windowSize.width}×{this.windowSize.height}
+          {this.windowSize.isMobile && ' (mobile)'}
+        </p>
       </div>
     );
   }
 }
 
-export const Todo = createView(TodoView);
+export default createView(Todo);

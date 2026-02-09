@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Todo } from './Todo';
+import Todo from './Todo';
 import './styles.css';
 
 const initialTodos = [

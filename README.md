@@ -27,7 +27,7 @@ interface CounterProps {
   initial: number;
 }
 
-class CounterView extends View<CounterProps> {
+class Counter extends View<CounterProps> {
   count = 0;
 
   onCreate() {
@@ -47,7 +47,7 @@ class CounterView extends View<CounterProps> {
   }
 }
 
-export const Counter = createView(CounterView);
+export default createView(Counter);
 ```
 
 ## What You Get
@@ -117,7 +117,7 @@ Or access props directly in `render()` and MobX handles re-renders when they cha
 State, logic, and template in one class:
 
 ```tsx
-class TodoView extends View<Props> {
+class Todo extends View<Props> {
   todos: TodoItem[] = [];
   input = '';
 
@@ -141,7 +141,7 @@ class TodoView extends View<Props> {
   }
 }
 
-export const Todo = createView(TodoView);
+export default createView(Todo);
 ```
 
 ### Separated
@@ -151,7 +151,7 @@ ViewModel and template separate:
 ```tsx
 import { ViewModel, createView } from 'mobx-mantle';
 
-class TodoVM extends ViewModel<Props> {
+class Todo extends ViewModel<Props> {
   todos: TodoItem[] = [];
   input = '';
 
@@ -165,7 +165,7 @@ class TodoVM extends ViewModel<Props> {
   }
 }
 
-export const Todo = createView(TodoVM, (vm) => (
+export default createView(Todo, (vm) => (
   <div>
     <input value={vm.input} onChange={vm.setInput} />
     <button onClick={vm.add}>Add</button>
@@ -188,7 +188,7 @@ configure({ autoObservable: false });
 **TC39 Decorators** (recommended, self-registering):
 
 ```tsx
-class TodoView extends View<Props> {
+class Todo extends View<Props> {
   @observable accessor todos: TodoItem[] = [];
   @observable accessor input = '';
 
@@ -202,13 +202,13 @@ class TodoView extends View<Props> {
   }
 }
 
-export const Todo = createView(TodoView);
+export default createView(Todo);
 ```
 
 **Legacy Decorators** (experimental, requires `makeObservable`):
 
 ```tsx
-class TodoView extends View<Props> {
+class Todo extends View<Props> {
   @observable todos: TodoItem[] = [];
   @observable input = '';
 
@@ -222,7 +222,7 @@ class TodoView extends View<Props> {
   }
 }
 
-export const Todo = createView(TodoView);
+export default createView(Todo);
 ```
 
 Note: `this.props` is always reactive regardless of decorator type.
@@ -248,13 +248,13 @@ class FormView extends View<Props> {
 Expose a DOM element to parent components via `this.forwardRef`:
 
 ```tsx
-class FancyInputView extends View<InputProps> {
+class FancyInput extends View<InputProps> {
   render() {
     return <input ref={this.forwardRef} className="fancy-input" />;
   }
 }
 
-export const FancyInput = createView(FancyInputView);
+export default createView(FancyInput);
 
 // Parent can now get a ref to the underlying input:
 function Parent() {
@@ -382,46 +382,124 @@ function ChartView({ data }) {
 
 Split effects, multiple refs, dependency tracking—all unnecessary with mobx-mantle.
 
-## Behaviors
+## Behaviors (Experimental)
 
-Behaviors are reusable pieces of state and logic that can be shared across views. Use `this.use()` to create behavior instances with automatic lifecycle management.
+> ⚠️ **Experimental:** The Behaviors API is still evolving and may change in future releases.
+
+Behaviors are reusable pieces of state and logic that can be shared across views. Define them as plain classes, wrap with `createBehavior()`, and instantiate them in your Views.
 
 ### Basic Behavior
 
 ```tsx
-class WindowSizeBehavior {
+import { Behavior, createBehavior } from 'mobx-mantle';
+
+class WindowSizeBehavior extends Behavior {
   width = window.innerWidth;
   height = window.innerHeight;
+  breakpoint!: number;
+
+  onCreate(breakpoint = 768) {
+    this.breakpoint = breakpoint;
+  }
+
+  get isMobile() {
+    return this.width < this.breakpoint;
+  }
+
+  // Class methods are auto-bound as actions (works with MobX strict mode)
+  handleResize() {
+    this.width = window.innerWidth;
+    this.height = window.innerHeight;
+  }
 
   onMount() {
-    const handler = () => {
-      this.width = window.innerWidth;
-      this.height = window.innerHeight;
-    };
-    window.addEventListener('resize', handler);
-    return () => window.removeEventListener('resize', handler);
+    window.addEventListener('resize', this.handleResize);
+    return () => window.removeEventListener('resize', this.handleResize);
   }
 }
 
-class ResponsiveView extends View<Props> {
-  windowSize = this.use(WindowSizeBehavior);
+export default createBehavior(WindowSizeBehavior);
+```
 
-  get isMobile() {
-    return this.windowSize.width < 768;
-  }
+Use it in a View by instantiating directly—arguments come from `onCreate`:
+
+```tsx
+import WindowSizeBehavior from './WindowSizeBehavior';
+
+class Responsive extends View<Props> {
+  windowSize = new WindowSizeBehavior(768);
 
   render() {
     return (
       <div>
-        {this.isMobile ? <MobileLayout /> : <DesktopLayout />}
+        {this.windowSize.isMobile ? <MobileLayout /> : <DesktopLayout />}
         <p>Window: {this.windowSize.width}x{this.windowSize.height}</p>
       </div>
     );
   }
 }
 
-export const Responsive = createView(ResponsiveView);
+export default createView(Responsive);
 ```
+
+### Behaviors with Arguments
+
+Pass arguments via `onCreate()`. The constructor signature is inferred automatically:
+
+```tsx
+class FetchBehavior extends Behavior {
+  url!: string;
+  interval = 5000;
+  data: Item[] = [];
+  loading = false;
+
+  onCreate(url: string, interval = 5000) {
+    this.url = url;
+    this.interval = interval;
+  }
+
+  onMount() {
+    this.fetchData();
+    const id = setInterval(() => this.fetchData(), this.interval);
+    return () => clearInterval(id);
+  }
+
+  async fetchData() {
+    this.loading = true;
+    this.data = await fetch(this.url).then(r => r.json());
+    this.loading = false;
+  }
+}
+
+export default createBehavior(FetchBehavior);
+```
+
+```tsx
+class MyView extends View<Props> {
+  users = new FetchBehavior('/api/users', 10000);
+  posts = new FetchBehavior('/api/posts');  // interval defaults to 5000
+
+  render() {
+    return (
+      <div>
+        {this.users.loading ? 'Loading...' : `${this.users.data.length} users`}
+      </div>
+    );
+  }
+}
+
+export default createView(MyView);
+```
+
+> **Note:** If you prefer traditional constructors, you can use them instead:
+> ```tsx
+> class FetchBehavior extends Behavior {
+>   constructor(public url: string, public interval = 5000) {
+>     super();
+>   }
+> }
+> ```
+> Both patterns work—`createBehavior` infers constructor args from either.
 
 ### Behavior Lifecycle
 
@@ -429,69 +507,11 @@ Behaviors support the same lifecycle methods as Views:
 
 | Method | When |
 |--------|------|
-| `onCreate()` | Called immediately when `this.use()` is called |
+| `onCreate(...args)` | Called during construction with the constructor arguments |
 | `onLayoutMount()` | Called when parent View layout mounts (before paint). Return cleanup (optional). |
 | `onMount()` | Called when parent View mounts (after paint). Return cleanup (optional). |
 | `onUnmount()` | Called when parent View unmounts, after cleanups (optional). |
 
-```tsx
-class DataSyncBehavior {
-  data: Item[] = [];
-  loading = false;
-
-  onCreate() {
-    console.log('Behavior created');
-  }
-
-  onMount() {
-    this.fetchData();
-    const interval = setInterval(() => this.fetchData(), 30000);
-    return () => clearInterval(interval);
-  }
-
-  onUnmount() {
-    console.log('Behavior destroyed');
-  }
-
-  async fetchData() {
-    this.loading = true;
-    this.data = await api.getItems();
-    this.loading = false;
-  }
-}
-```
-
-### Behavior Options
-
-By default, behaviors are made observable automatically. Disable this if you're using decorators:
-
-```tsx
-// Auto-observable (default)
-windowSize = this.use(WindowSizeBehavior);
-
-// With decorators
-windowSize = this.use(WindowSizeBehavior, { observable: false });
-```
-
-### Typed Behaviors
-
-For better IDE support, extend the `Behavior` base class:
-
-```tsx
-import { Behavior } from 'mobx-mantle';
-
-class TimerBehavior extends Behavior {
-  seconds = 0;
-  private intervalId?: number;
-
-  onMount() {
-    this.intervalId = window.setInterval(() => {
-      this.seconds++;
-    }, 1000);
-    return () => clearInterval(this.intervalId);
-  }
-}
-```
 
 ## API
 
@@ -524,18 +544,35 @@ Base class for view components. `ViewModel` is an alias for `View`—use it when
 | `onUnmount()` | Called on unmount, after cleanups (optional) |
 | `render()` | Return JSX (optional if using template) |
 | `ref<T>()` | Create a ref for DOM elements |
-| `use<T>(Class, options?)` | Create a behavior instance with lifecycle management |
 
 ### `Behavior`
 
-Optional base class for behaviors used with `this.use()`.
+Base class for behaviors. Extend it and wrap with `createBehavior()`.
 
 | Method | Description |
 |--------|-------------|
-| `onCreate()` | Called when behavior is instantiated |
+| `onCreate(...args)` | Called during construction with constructor args |
 | `onLayoutMount()` | Called before paint, return cleanup (optional) |
 | `onMount()` | Called after paint, return cleanup (optional) |
 | `onUnmount()` | Called when parent View unmounts |
+
+### `createBehavior(Class)`
+
+Wraps a behavior class for automatic observable wrapping and lifecycle management.
+
+```tsx
+class MyBehavior extends Behavior {
+  value!: string;
+  
+  onCreate(value: string) {
+    this.value = value;
+  }
+}
+
+export default createBehavior(MyBehavior);
+
+// Usage: new MyBehavior('hello')
+```
 
 ### `createView(ViewClass, templateOrOptions?)`
 
