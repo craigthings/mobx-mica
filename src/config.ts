@@ -11,7 +11,7 @@ export interface WatchOptions {
  */
 export interface MantleErrorContext {
   /** The lifecycle phase where the error occurred */
-  phase: 'onLayoutMount' | 'onMount' | 'onUpdated' | 'onUnmount' | 'watch';
+  phase: 'onLayoutMount' | 'onMount' | 'onUpdate' | 'onUnmount' | 'watch';
   /** The View or Behavior class name */
   name: string;
   /** Whether the error came from a Behavior (true) or a View (false) */

@@ -1,6 +1,6 @@
 # MobX Mantle
 
-A lightweight library for building React components with a class-based API and MobX reactivity built in. Get full access to the React ecosystem, with better access to vanilla JS libraries, and simpler overall DX for both.
+A lightweight library for building React components with a familiar class-based API and MobX reactivity built in. Get full access to the React ecosystem, with better access to vanilla JS libraries, and simpler overall DX for both.
 
 ## Why
 
@@ -79,8 +79,8 @@ toggle(id: number) {    // automatically bound to this
 
 **React to changes explicitly:**
 ```tsx
-onMount() {
-  return reaction(
+onCreate() {
+  this.watch(
     () => this.props.filter,
     (filter) => this.applyFilter(filter)
   );
@@ -94,7 +94,7 @@ onMount() {
 | `onCreate()` | Instance created, props available |
 | `onLayoutMount()` | DOM ready, before paint. Return a cleanup function (optional). |
 | `onMount()` | Component mounted, after paint. Return a cleanup function (optional). |
-| `onUpdated()` | After every render (via `useEffect`). |
+| `onUpdate()` | After every render (via `useEffect`). |
 | `onUnmount()` | Component unmounting. Called after cleanups (optional). |
 | `render()` | On mount and updates. Return JSX. |
 
@@ -159,6 +159,8 @@ onCreate() {
 }
 ```
 
+`this.watch` wraps MobX's `reaction` with automatic lifecycle disposal. For advanced MobX patterns (`autorun`, `when`, custom schedulers), use `reaction` directly and return a dispose function from `onMount`.
+
 ### Props Reactivity
 
 `this.props` is reactive: your component re-renders when accessed props change.
@@ -187,10 +189,10 @@ onMount() {
 }
 ```
 
-**Option 3: `onUpdated`** — imperative hook after each render (requires manual dirty-checking):
+**Option 3: `onUpdate`** — imperative hook after each render (requires manual dirty-checking):
 
 ```tsx
-onUpdated() {
+onUpdate() {
   if (this.props.filter !== this.lastFilter) {
     this.lastFilter = this.props.filter;
     this.applyFilter(this.props.filter);
@@ -370,42 +372,6 @@ function Parent() {
 }
 ```
 
-## Reactions
-
-```tsx
-class SearchView extends View<Props> {
-  query = '';
-  results: string[] = [];
-
-  onMount() {
-    const dispose = reaction(
-      () => this.query,
-      async (query) => {
-        if (query.length > 2) {
-          this.results = await searchApi(query);
-        }
-      },
-      { delay: 300 }
-    );
-
-    return dispose;
-  }
-
-  setQuery(e: React.ChangeEvent<HTMLInputElement>) {
-    this.query = e.target.value;
-  }
-
-  render() {
-    return (
-      <div>
-        <input value={this.query} onChange={this.setQuery} />
-        <ul>{this.results.map(r => <li key={r}>{r}</li>)}</ul>
-      </div>
-    );
-  }
-}
-```
-
 ## React Hooks
 
 Hooks work inside `render()`:
@@ -439,20 +405,19 @@ class ChartView extends View<{ data: number[] }> {
   containerRef = this.ref<HTMLDivElement>();
   chart: Chart | null = null;
 
+  onCreate() {
+    this.watch(
+      () => this.props.data,
+      (data) => this.chart?.update(data)
+    );
+  }
+
   onMount() {
     this.chart = new Chart(this.containerRef.current!, {
       data: this.props.data,
     });
 
-    const dispose = reaction(
-      () => this.props.data,
-      (data) => this.chart?.update(data)
-    );
-
-    return () => {
-      dispose();
-      this.chart?.destroy();
-    };
+    return () => this.chart?.destroy();
   }
 
   render() {
@@ -485,7 +450,7 @@ Split effects, multiple refs, dependency tracking: all unnecessary with Mantle.
 
 ## Error Handling
 
-Render errors propagate to React error boundaries as usual. Lifecycle errors (`onLayoutMount`, `onMount`, `onUpdated`, `onUnmount`, `watch`) in both Views and Behaviors are caught and routed through a configurable handler.
+Render errors propagate to React error boundaries as usual. Lifecycle errors (`onLayoutMount`, `onMount`, `onUpdate`, `onUnmount`, `watch`) in both Views and Behaviors are caught and routed through a configurable handler.
 
 By default, errors are logged to `console.error`. Configure a global handler to integrate with your error reporting:
 
@@ -494,7 +459,7 @@ import { configure } from 'mobx-mantle';
 
 configure({
   onError: (error, context) => {
-    // context.phase: 'onLayoutMount' | 'onMount' | 'onUpdated' | 'onUnmount' | 'watch'
+    // context.phase: 'onLayoutMount' | 'onMount' | 'onUpdate' | 'onUnmount' | 'watch'
     // context.name: class name of the View or Behavior
     // context.isBehavior: true if the error came from a Behavior
     Sentry.captureException(error, {
@@ -694,7 +659,7 @@ Base class for view components. `ViewModel` is an alias for `View`. Use it when 
 | `onCreate()` | Called when instance created |
 | `onLayoutMount()` | Called before paint, return cleanup (optional) |
 | `onMount()` | Called after paint, return cleanup (optional) |
-| `onUpdated()` | Called after every render |
+| `onUpdate()` | Called after every render |
 | `onUnmount()` | Called on unmount, after cleanups (optional) |
 | `render()` | Return JSX (optional if using template) |
 | `ref<T>()` | Create a ref for DOM elements |

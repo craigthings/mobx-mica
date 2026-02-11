@@ -65,7 +65,7 @@ export class View<P = {}> {
   onCreate?(props: P): void;
   onLayoutMount?(): void | (() => void);
   onMount?(): void | (() => void);
-  onUpdated?(): void;
+  onUpdate?(): void;
   onUnmount?(): void;
 
   ref<T extends HTMLElement = HTMLElement>(): { current: T | null } {
@@ -185,7 +185,7 @@ const BASE_EXCLUDES = new Set([
   'onCreate',
   'onLayoutMount',
   'onMount', 
-  'onUpdated',
+  'onUpdate',
   'onUnmount',
   'render', 
   'ref',
@@ -442,9 +442,9 @@ export function createView<V extends View<any>>(
     // Called after every render (via useEffect)
     useEffect(() => {
       try {
-        vm.onUpdated?.();
+        vm.onUpdate?.();
       } catch (e) {
-        reportError(e, { phase: 'onUpdated', name: ViewClass.name, isBehavior: false });
+        reportError(e, { phase: 'onUpdate', name: ViewClass.name, isBehavior: false });
       }
     });
 
