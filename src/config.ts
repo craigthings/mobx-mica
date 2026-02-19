@@ -6,12 +6,18 @@ export interface WatchOptions {
   fireImmediately?: boolean;
 }
 
+/** Options for the effect method */
+export interface EffectOptions {
+  /** Debounce the effect by N milliseconds */
+  delay?: number;
+}
+
 /**
  * Error context passed to the onError handler
  */
 export interface MantleErrorContext {
   /** The lifecycle phase where the error occurred */
-  phase: 'onLayoutMount' | 'onMount' | 'onUpdate' | 'onUnmount' | 'watch';
+  phase: 'onLayoutMount' | 'onMount' | 'onUpdate' | 'onUnmount' | 'watch' | 'effect';
   /** The Component or Behavior class name */
   name: string;
   /** Whether the error came from a Behavior (true) or a Component (false) */

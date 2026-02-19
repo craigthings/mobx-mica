@@ -1,5 +1,5 @@
 import { useRef, useEffect, useLayoutEffect, forwardRef as reactForwardRef, memo, type Ref, type JSX } from 'react';
-import { makeObservable, observable, computed, action, runInAction, reaction, AnnotationsMap, type IObservableValue } from 'mobx';
+import { makeObservable, observable, computed, action, runInAction, reaction, autorun, AnnotationsMap, type IObservableValue } from 'mobx';
 import { useObserver } from 'mobx-react-lite';
 import {
   type BehaviorEntry,
@@ -8,11 +8,11 @@ import {
   mountBehavior,
   unmountBehavior,
 } from './behavior';
-import { globalConfig, reportError, type WatchOptions } from './config';
+import { globalConfig, reportError, type WatchOptions, type EffectOptions } from './config';
 import { getAnnotations } from './decorators';
 
 // Re-export config utilities
-export { configure, type MantleConfig, type MantleErrorContext, type WatchOptions } from './config';
+export { configure, type MantleConfig, type MantleErrorContext, type WatchOptions, type EffectOptions } from './config';
 
 // Re-export decorators for single-import convenience
 export { observable, action, computed } from './decorators';
@@ -128,6 +128,73 @@ export class Component<P = {}> {
     };
   }
 
+  /**
+   * Run a side effect that auto-tracks reactive dependencies.
+   * Re-runs whenever any accessed observable changes.
+   * Automatically disposed on unmount.
+   * 
+   * Best for simple synchronization (DOM updates, logging). For complex
+   * side effects with explicit triggers, prefer `watch()`.
+   * 
+   * @param fn - Effect function. May return a cleanup function.
+   * @param options - Optional configuration (delay)
+   * @returns Dispose function for early teardown
+   * 
+   * @example
+   * ```tsx
+   * onCreate() {
+   *   this.effect(() => {
+   *     document.title = `${this.items.length} items`;
+   *   });
+   * }
+   * ```
+   * 
+   * @example With cleanup
+   * ```tsx
+   * onCreate() {
+   *   this.effect(() => {
+   *     const handler = () => console.log(this.count);
+   *     window.addEventListener('click', handler);
+   *     return () => window.removeEventListener('click', handler);
+   *   });
+   * }
+   * ```
+   */
+  effect(
+    fn: () => void | (() => void),
+    options?: EffectOptions
+  ): () => void {
+    let cleanup: (() => void) | undefined;
+
+    const dispose = autorun(
+      () => {
+        // Run previous cleanup before re-running effect
+        cleanup?.();
+        cleanup = undefined;
+
+        try {
+          const result = fn();
+          if (typeof result === 'function') {
+            cleanup = result;
+          }
+        } catch (e) {
+          reportError(e, { phase: 'effect', name: this.constructor.name, isBehavior: false });
+        }
+      },
+      { delay: options?.delay }
+    );
+
+    this._watchDisposers.push(dispose);
+
+    // Return a dispose function that runs cleanup and removes from array
+    return () => {
+      cleanup?.();
+      dispose();
+      const idx = this._watchDisposers.indexOf(dispose);
+      if (idx !== -1) this._watchDisposers.splice(idx, 1);
+    };
+  }
+
   /** @internal */
   _disposeWatchers(): void {
     for (const dispose of this._watchDisposers) {
@@ -190,6 +257,7 @@ const BASE_EXCLUDES = new Set([
   'render', 
   'ref',
   'watch',
+  'effect',
   'constructor',
   '_behaviors',
   '_collectBehaviors',

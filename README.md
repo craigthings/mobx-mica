@@ -104,10 +104,10 @@ Use `this.watch` to react to state changes. Watchers are automatically disposed 
 
 ```tsx
 this.watch(
-  () => expr,           // reactive expression (getter)
-  (value, prev) => {},  // callback when expression result changes
-  options?              // optional: { delay, fireImmediately }
-)
+  () => this.query,                       // expression to track
+  (query, prev) => this.search(query),    // runs when result changes
+  { delay: 300, fireImmediately: true }   // debounce + run on setup
+);
 ```
 
 **Options:**
@@ -159,7 +159,69 @@ onCreate() {
 }
 ```
 
-`this.watch` wraps MobX's `reaction` with automatic lifecycle disposal. For advanced MobX patterns (`autorun`, `when`, custom schedulers), use `reaction` directly and return a dispose function from `onMount`.
+`this.watch` wraps MobX's `reaction` with automatic lifecycle disposal. For advanced MobX patterns (`when`, custom schedulers), use MobX directly and return a dispose function from `onMount`.
+
+### Effects
+
+Use `this.effect` to run a side effect that auto-tracks dependencies. It runs immediately and re-runs whenever any accessed observable changes.
+
+```tsx
+this.effect(() => {
+  document.title = `${this.count} items`;   // auto-tracks this.count
+  return () => { /* cleanup */ };            // optional, runs before each re-run
+}, { delay: 100 });                          // optional debounce
+```
+
+**When to use which:**
+
+| Method | Best for |
+|--------|----------|
+| `effect(fn)` | Simple sync: DOM updates, logging, derived side effects |
+| `watch(expr, fn)` | Complex side effects with explicit triggers: API calls, debounced actions |
+
+`effect` auto-tracks all accessed state, which can lead to unexpected re-runs in complex scenarios. For side effects where you want explicit control over what triggers re-runs, prefer `watch`.
+
+**Basic example:**
+
+```tsx
+class Counter extends Component<Props> {
+  count = 0;
+
+  onCreate() {
+    // Runs immediately, re-runs when this.count changes
+    this.effect(() => {
+      document.title = `Count: ${this.count}`;
+    });
+  }
+}
+```
+
+**With cleanup:**
+
+```tsx
+onCreate() {
+  this.effect(() => {
+    const handler = () => console.log('clicked at count:', this.count);
+    window.addEventListener('click', handler);
+    
+    // Cleanup runs before each re-run and on unmount
+    return () => window.removeEventListener('click', handler);
+  });
+}
+```
+
+**Early disposal:**
+
+```tsx
+onCreate() {
+  const stop = this.effect(() => {
+    if (this.data.length > 0) {
+      this.processData();
+      stop(); // only needed once
+    }
+  });
+}
+```
 
 ### Props Reactivity
 
@@ -664,6 +726,7 @@ Base class for components. `ViewModel` is an alias for `Component`. Use it when 
 | `render()` | Return JSX (optional if using template) |
 | `ref<T>()` | Create a ref for DOM elements |
 | `watch(expr, callback, options?)` | Watch reactive expression, auto-disposed on unmount |
+| `effect(fn, options?)` | Run auto-tracked side effect, auto-disposed on unmount |
 
 ### `Behavior`
 
@@ -676,6 +739,7 @@ Base class for behaviors. Extend it and wrap with `createBehavior()`.
 | `onMount()` | Called after paint, return cleanup (optional) |
 | `onUnmount()` | Called when parent Component unmounts |
 | `watch(expr, callback, options?)` | Watch reactive expression, auto-disposed on unmount |
+| `effect(fn, options?)` | Run auto-tracked side effect, auto-disposed on unmount |
 
 ### `createBehavior(Class)`
 

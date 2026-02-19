@@ -1,5 +1,5 @@
-import { makeObservable, observable, computed, action, reaction, type AnnotationsMap } from 'mobx';
-import { globalConfig, reportError, type WatchOptions } from './config';
+import { makeObservable, observable, computed, action, reaction, autorun, type AnnotationsMap } from 'mobx';
+import { globalConfig, reportError, type WatchOptions, type EffectOptions } from './config';
 
 /** Symbol marker to identify behavior instances */
 export const BEHAVIOR_MARKER = Symbol('behavior');
@@ -11,6 +11,7 @@ const BEHAVIOR_EXCLUDES = new Set([
   'onMount',
   'onUnmount',
   'watch',
+  'effect',
   'constructor',
   '_watchDisposers',
   '_disposeWatchers',
@@ -90,6 +91,62 @@ export class Behavior {
 
     // Return a dispose function that also removes from the array
     return () => {
+      dispose();
+      const idx = this._watchDisposers.indexOf(dispose);
+      if (idx !== -1) this._watchDisposers.splice(idx, 1);
+    };
+  }
+
+  /**
+   * Run a side effect that auto-tracks reactive dependencies.
+   * Re-runs whenever any accessed observable changes.
+   * Automatically disposed on unmount.
+   * 
+   * Best for simple synchronization (DOM updates, logging). For complex
+   * side effects with explicit triggers, prefer `watch()`.
+   * 
+   * @param fn - Effect function. May return a cleanup function.
+   * @param options - Optional configuration (delay)
+   * @returns Dispose function for early teardown
+   * 
+   * @example
+   * ```tsx
+   * onCreate() {
+   *   this.effect(() => {
+   *     console.log('Current value:', this.value);
+   *   });
+   * }
+   * ```
+   */
+  effect(
+    fn: () => void | (() => void),
+    options?: EffectOptions
+  ): () => void {
+    let cleanup: (() => void) | undefined;
+
+    const dispose = autorun(
+      () => {
+        // Run previous cleanup before re-running effect
+        cleanup?.();
+        cleanup = undefined;
+
+        try {
+          const result = fn();
+          if (typeof result === 'function') {
+            cleanup = result;
+          }
+        } catch (e) {
+          reportError(e, { phase: 'effect', name: this.constructor.name, isBehavior: true });
+        }
+      },
+      { delay: options?.delay }
+    );
+
+    this._watchDisposers.push(dispose);
+
+    // Return a dispose function that runs cleanup and removes from array
+    return () => {
+      cleanup?.();
       dispose();
       const idx = this._watchDisposers.indexOf(dispose);
       if (idx !== -1) this._watchDisposers.splice(idx, 1);
