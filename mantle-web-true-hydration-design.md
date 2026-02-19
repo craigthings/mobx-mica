@@ -435,30 +435,200 @@ When an item is added:
 
 ## 9. Handling Mismatches
 
-If server and client render differently (e.g., client-only data):
+If server and client render differently (e.g., client-only data), the hydration cursor may get out of sync.
 
-**Custom Elements mode:** morphdom patches the shadow DOM.
+### The Problem
 
-**Internal components mode:** The hydration cursor may get out of sync. Strategies:
+A naive approach sets `isHydrating = false` on mismatch, but this causes **all subsequent siblings** to also exit hydration mode — creating duplicate DOM for everything that follows:
 
-1. **Graceful degradation:** If cursor mismatch detected, fall back to full create mode for that subtree
-2. **Markers:** Add `data-mantle` attributes to help alignment (optional)
-3. **Accept it:** Minor mismatches often work fine—morphdom patches the differences
+```ts
+// ❌ Bad: Exits hydration for entire sibling chain
+if (hydrationCursor.nodeName !== tag.toUpperCase()) {
+  isHydrating = false;  // Everything after this creates fresh DOM!
+  return createElement(tag, props, children);
+}
+```
+
+### The Solution: Subtree-Scoped Recovery
+
+Handle the mismatch locally, then **resume hydration** for siblings:
 
 ```ts
 // In h() during hydration
 if (isHydrating && hydrationCursor) {
   if (hydrationCursor.nodeName !== tag.toUpperCase()) {
-    // Mismatch! Fall back to create mode for this subtree
-    console.warn(`Hydration mismatch: expected ${tag}, found ${hydrationCursor.nodeName}`);
-    isHydrating = false;  // Exit hydration for this branch
-    return createElement(tag, props, children);
+    // ═══════════════════════════════════════════
+    // MISMATCH: Create this subtree fresh, resume hydration for siblings
+    // ═══════════════════════════════════════════
+    console.warn(
+      `[Mantle] Hydration mismatch: expected <${tag}>, found <${hydrationCursor.nodeName.toLowerCase()}>. ` +
+      `Creating fresh subtree. This may indicate SSR/client render inconsistency.`
+    );
+    
+    // Remember the mismatched node and advance cursor
+    const skippedNode = hydrationCursor;
+    hydrationCursor = hydrationCursor.nextSibling;
+    
+    // Create this element fresh (temporarily exit hydration for this subtree)
+    const savedHydrating = isHydrating;
+    isHydrating = false;
+    
+    const el = document.createElement(tag);
+    applyProps(el, props);
+    appendChildren(el, children);
+    
+    // RESUME hydration for subsequent siblings
+    isHydrating = savedHydrating;
+    
+    // Replace the mismatched node in the DOM
+    skippedNode.parentNode?.replaceChild(el, skippedNode);
+    
+    return el;
   }
-  // ... normal hydration
+  
+  // ... normal hydration continues
 }
 ```
 
-## 10. Inline Style Objects
+### How It Works
+
+```
+Server HTML:          Client expects:
+<div>                 <div>
+  <span>A</span>        <p>A</p>      ← Mismatch!
+  <span>B</span>        <span>B</span> ← Should still hydrate
+  <span>C</span>        <span>C</span> ← Should still hydrate
+</div>                </div>
+
+With subtree-scoped recovery:
+1. Mismatch detected at <span> vs <p>
+2. Create fresh <p>A</p>, replace <span>A</span>
+3. Cursor advances to next sibling
+4. isHydrating restored → <span>B</span> and <span>C</span> hydrate normally
+```
+
+### Mismatch Modes
+
+| Mode | Behavior |
+|------|----------|
+| **Custom Elements** | morphdom patches the shadow DOM (no cursor to lose) |
+| **Internal Components** | Subtree-scoped recovery, resume hydration for siblings |
+
+### Debugging Mismatches
+
+Mismatches indicate SSR/client inconsistency. Common causes:
+
+| Cause | Fix |
+|-------|-----|
+| Client-only data | Defer to `onMount()`, use same data for SSR/hydration |
+| Different sort order | Ensure SSR and client use identical sort |
+| Conditional rendering | Use consistent conditions (e.g., check `typeof window`) |
+| Date/time differences | Use server-provided timestamps |
+
+```tsx
+// Example: Deferring client-only state
+class MyComponent extends Component {
+  clientOnly = false;
+  
+  onMount() {
+    this.clientOnly = true;  // Now safe to diverge from SSR
+  }
+  
+  render() {
+    return (
+      <div>
+        {this.clientOnly && <ClientOnlyWidget />}
+      </div>
+    );
+  }
+}
+```
+
+## 10. Keyed List Hydration
+
+Mantle uses keyed reconciliation for efficient list updates. During hydration, lists are handled specially to set up the keyed tracking.
+
+### How It Works
+
+**SSR outputs flat HTML — no keys in markup:**
+```html
+<ul>
+  <li>Buy milk</li>
+  <li>Write code</li>
+</ul>
+```
+
+**Hydration adopts nodes and builds the keyed map:**
+```ts
+// During hydration of a keyed list:
+function hydrateKeyedChildren(parent: Node, children: Node[]) {
+  const map = { children: new Map(), keyOrder: [] };
+  keyedMaps.set(parent, map);
+  
+  for (const child of children) {
+    const key = child.__key;
+    // DOM node already exists (adopted), just track it
+    map.children.set(key, { 
+      node: child,           // Existing DOM from SSR
+      component: child.__component 
+    });
+    map.keyOrder.push(key);
+    // No DOM mutations — just building the tracking map
+  }
+}
+```
+
+**Subsequent updates use keyed reconciliation:**
+```
+Add item → appendChild()
+Remove item → node.remove()
+Reorder → insertBefore()
+```
+
+### The `<For>` Component
+
+`<For>` hydrates identically to `.map()` with keys:
+
+```tsx
+// Server renders:
+<For each={todos}>{todo => <TodoItem item={todo} />}</For>
+// → <li>Buy milk</li><li>Write code</li>
+
+// Client hydrates:
+// 1. Iterates todos array
+// 2. Each TodoItem adopts existing <li>
+// 3. Keyed map built (by object reference or explicit key)
+// 4. Future updates use keyed reconciliation
+```
+
+### Hydration Requirements
+
+For correct hydration, server and client must render lists in the **same order**:
+
+| Scenario | Result |
+|----------|--------|
+| Same data, same order | ✅ Perfect hydration |
+| Same data, different order | ⚠️ Nodes adopted incorrectly, then fixed on first update |
+| Different data | ⚠️ Mismatch, falls back to morphdom patching |
+
+**Best practice:** Ensure SSR and client render with identical data and sort order. Client-only sorting or filtering should happen *after* hydration completes.
+
+```tsx
+class TodoList extends Component {
+  hydrated = false;
+  
+  onMount() {
+    this.hydrated = true;  // Now safe to apply client-only transforms
+  }
+  
+  get displayItems() {
+    if (!this.hydrated) return this.props.items;  // SSR order
+    return this.sortedAndFiltered;                 // Client order
+  }
+}
+```
+
+## 11. Inline Style Objects
 
 Mantle supports React-style inline style objects for compatibility between mantle-react and mantle-web:
 
@@ -591,7 +761,7 @@ This is a micro-optimization—only necessary for components with many inline st
 
 Components using inline style objects work identically in both renderers.
 
-## 11. CSS-in-JS SSR (Goober, Emotion)
+## 12. CSS-in-JS SSR (Goober, Emotion)
 
 Mantle-Web works seamlessly with CSS-in-JS libraries like Goober and Emotion. These libraries handle their own SSR — no framework-level integration required.
 
@@ -672,7 +842,7 @@ const cardStyle = css`
 
 ---
 
-## 12. Summary
+## 13. Summary
 
 ### Two Modes, One Goal
 

@@ -6,108 +6,83 @@ This document covers the recommended styling patterns for Mantle-Web components.
 
 ## Overview
 
-Mantle-Web uses [Goober](https://goober.js.org/) internally for CSS-in-JS. This gives you:
+Mantle-Web uses **per-instance style injection** for reactive CSS. Each component with a `get styles()` getter gets its own `<style>` element that updates when observables change.
 
-- SCSS-like nested selectors (`&:hover`, `.child`)
-- Unique class generation (automatic scoping)
-- SSR support via `extractCss()`
-- ~1KB runtime
-- **Zero setup** — just import and use
+- **True reactive CSS** — Use observables directly in your styles
+- **No CSS-in-JS dependency** — No Goober, Emotion, or styled-components needed
+- **Native CSS nesting** — SCSS-like syntax is now standard CSS (all browsers 2023+)
+- **Automatic scoping** — Each component instance gets a unique scope class
+- **No style leaks** — Styles are replaced, not accumulated
+- **~30 lines of framework code**
 
 ```tsx
-import { css } from 'mantle-web';
-
-const className = css`
-  background: blue;
-  &:hover { background: darkblue; }
-`;
+class ColorPicker extends Component {
+  hue = 180;
+  
+  get styles() {
+    return `
+      .picker {
+        background: hsl(${this.hue}, 70%, 50%);
+        
+        &:hover {
+          transform: scale(1.02);
+        }
+        
+        .preview {
+          border-radius: 50%;
+        }
+      }
+    `;
+  }
+}
 ```
 
-### No Configuration Required
+When `this.hue` changes, the component's `<style>` element is updated with the new CSS. No new rules accumulate — the old CSS is replaced entirely.
 
-Mantle handles Goober's initialization internally. You never need to call `setup()` or configure anything — just import `css`, `styled`, or `keyframes` and start using them.
+### Native CSS Nesting (No SCSS Required)
+
+As of 2023, all major browsers support CSS nesting natively. You can write SCSS-style nested selectors directly:
+
+```css
+.card {
+  background: white;
+  
+  &:hover { 
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
+  }
+  
+  &.highlighted {
+    border: 2px solid blue;
+  }
+  
+  .header {
+    font-weight: bold;
+    
+    .title { font-size: 18px; }
+  }
+  
+  @media (max-width: 768px) {
+    padding: 8px;
+  }
+}
+```
+
+No build step, no preprocessor — this is valid CSS.
 
 ---
 
-## Quick Reference: `css` vs `styled`
-
-### `css` — Returns a Class String
-
-```tsx
-import { css } from 'mantle-web';
-
-const buttonClass = css`
-  background: blue;
-  padding: 8px 16px;
-`;
-
-// Use in JSX
-<button class={buttonClass}>Click me</button>
-```
-
-### `styled` — Returns a Component
-
-```tsx
-import { styled } from 'mantle-web';
-
-const Button = styled('button')`
-  background: blue;
-  padding: 8px 16px;
-  
-  &:hover {
-    background: darkblue;
-  }
-`;
-
-// Use directly as JSX element
-<Button>Click me</Button>
-<Button onClick={handleClick}>Submit</Button>
-```
-
-### `styled` with Dynamic Props
-
-```tsx
-import { styled } from 'mantle-web';
-
-const Button = styled('button')`
-  background: ${props => props.primary ? '#007bff' : '#6c757d'};
-  color: white;
-  padding: ${props => props.compact ? '4px 8px' : '8px 16px'};
-  
-  &:hover {
-    filter: brightness(1.1);
-  }
-`;
-
-// Pass props
-<Button primary>Primary</Button>
-<Button compact>Small</Button>
-<Button primary compact>Both</Button>
-```
-
-### When to Use Each
-
-| API | Returns | Best For |
-|-----|---------|----------|
-| `css` | Class string | Use with Component patterns, `get styles()`, external files |
-| `styled` | Component | Standalone styled elements, quick prototyping |
-
----
-
-## Pattern 1: Inline `get styles()` Getter
-
-Best for simple components where styles live with the logic. Target elements explicitly with class selectors — same mental model as CSS, Svelte, and Vue.
+## The `get styles()` Pattern
 
 ### Basic Example
 
 ```tsx
-import { Component, createComponent, css } from 'mantle-web';
+import { Component, createComponent } from 'mantle-web';
 
 class Button extends Component<{ primary?: boolean }> {
   loading = false;
   
   get styles() {
-    return css`
+    return `
       .btn {
         background: ${this.props.primary ? '#007bff' : '#6c757d'};
         color: white;
@@ -136,7 +111,6 @@ class Button extends Component<{ primary?: boolean }> {
   }
   
   render() {
-    // Scoping class auto-applied to root element
     return (
       <button class="btn" onClick={this.handleClick} disabled={this.loading}>
         {this.props.children}
@@ -153,28 +127,43 @@ export default createComponent(Button);
 ```tsx
 class Card extends Component<Props> {
   get styles() {
-    return css`
+    return `
       .card {
         background: white;
         border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
       }
       
       .header {
         padding: 16px;
         font-weight: bold;
+        border-bottom: 1px solid #eee;
       }
       
       .body {
         padding: 16px;
       }
+      
+      .card:hover .actions {
+        opacity: 1;
+      }
+      
+      .actions {
+        opacity: 0;
+        transition: opacity 0.2s;
+      }
     `;
   }
   
   render() {
-    // Scoping class auto-applied to root, selectors target children
     return (
       <div class="card">
-        <div class="header">Title</div>
+        <div class="header">
+          Title
+          <span class="actions">
+            <button>Edit</button>
+          </span>
+        </div>
         <div class="body">Content</div>
       </div>
     );
@@ -187,7 +176,7 @@ class Card extends Component<Props> {
 Styles automatically update when any observable state changes:
 
 ```tsx
-import { Component, createComponent, css } from 'mantle-web';
+import { Component, createComponent } from 'mantle-web';
 
 class ColorPicker extends Component {
   // Observable state
@@ -197,8 +186,8 @@ class ColorPicker extends Component {
   expanded = false;
   
   get styles() {
-    // MobX tracks all state access here — styles recompute when any change
-    return css`
+    // MobX tracks all state access — styles update when any change
+    return `
       .picker {
         background: hsl(${this.hue}, ${this.saturation}%, ${this.lightness}%);
         padding: ${this.expanded ? '24px' : '12px'};
@@ -227,7 +216,6 @@ class ColorPicker extends Component {
   }
   
   render() {
-    // Scoping class auto-applied to root element
     return (
       <div class="picker" onClick={() => this.expanded = !this.expanded}>
         <div class="preview" />
@@ -259,23 +247,28 @@ class ColorPicker extends Component {
 export default createComponent(ColorPicker);
 ```
 
-When `this.hue`, `this.saturation`, `this.lightness`, or `this.expanded` change:
-1. MobX detects the change
-2. Component re-renders  
-3. `get styles()` recomputes with new values
-4. Goober generates updated CSS
-5. DOM updates via morphdom
+When any slider moves:
+1. Observable changes (e.g., `this.hue = 181`)
+2. MobX triggers component re-render
+3. `get styles()` returns new CSS string
+4. Component's `<style>` element gets updated (not appended!)
+5. Browser re-applies styles
 
-### Same Example with External File
+**No CSS leak** — there's always exactly one `<style>` element per component instance.
 
-You can move the styles to a separate file — same reactivity, better separation:
+---
+
+## External Style Files
+
+For larger components, move styles to a separate file:
+
+### The Style File
 
 ```tsx
 // ColorPicker.styles.ts
-import { css } from 'mantle-web';
 import type { ColorPicker } from './ColorPicker';
 
-export default (self: ColorPicker) => css`
+export default (self: ColorPicker) => `
   .picker {
     background: hsl(${self.hue}, ${self.saturation}%, ${self.lightness}%);
     padding: ${self.expanded ? '24px' : '12px'};
@@ -288,10 +281,6 @@ export default (self: ColorPicker) => css`
     height: ${self.expanded ? '200px' : '100px'};
     border-radius: 50%;
     background: hsl(${self.hue}, ${self.saturation}%, ${self.lightness}%);
-    box-shadow: ${self.expanded 
-      ? `0 8px 32px hsla(${self.hue}, ${self.saturation}%, 30%, 0.4)`
-      : 'none'
-    };
   }
   
   .sliders {
@@ -301,6 +290,8 @@ export default (self: ColorPicker) => css`
   }
 `;
 ```
+
+### The Component File
 
 ```tsx
 // ColorPicker.tsx
@@ -313,11 +304,12 @@ export class ColorPicker extends Component {
   lightness = 50;
   expanded = false;
   
-  // Connect external styles to this component
-  static styles = styles;
+  // Connect external styles
+  get styles() {
+    return styles(this);
+  }
   
   render() {
-    // Scoping class auto-applied to root
     return (
       <div class="picker" onClick={() => this.expanded = !this.expanded}>
         <div class="preview" />
@@ -332,360 +324,313 @@ export class ColorPicker extends Component {
 export default createComponent(ColorPicker);
 ```
 
-Same reactive behavior, cleaner component file. Use `self` (or `$`, or whatever you prefer) in the style file to access all component state and props.
-
-### How It Works
-
-1. Define a `get styles()` getter that returns `css\`...\``
-2. MobX makes it a computed — cached until observables change
-3. Goober generates a unique scoping class (e.g., `go3x7k`)
-4. `createComponent` auto-applies the scoping class to the root element
-5. Target all elements (including root) with explicit selectors — like Vue/Svelte
-
-### When to Use
-
-- Small to medium components
-- Styles tightly coupled to component logic
-- Quick prototyping
+Same reactive behavior, cleaner separation. Use `self` (or `$`) in the style file to access component state and props.
 
 ---
 
-## Pattern 2: External Style File
+## How It Works
 
-Best for complex components where you want styles separate from logic.
+### Per-Instance Style Elements
 
-### The Style File
+Each component with styles gets its own `<style>` element in `<head>`:
 
-```tsx
-// Card.styles.ts
-import { css } from 'mantle-web';
-import type { Card } from './Card';
-
-export default ($: Card) => css`
-  .card {
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    overflow: hidden;
-  }
-  
-  .card.highlighted {
-    box-shadow: 0 0 0 2px #007bff;
-  }
-  
-  .header {
-    padding: 16px;
-    border-bottom: 1px solid #eee;
-    font-weight: 600;
-    font-size: 18px;
-  }
-  
-  .body {
-    padding: 16px;
-    color: #333;
-  }
-  
-  .footer {
-    padding: 16px;
-    background: #f9f9f9;
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-  
-  .actions {
-    opacity: 0;
-    transition: opacity 0.2s;
-  }
-  
-  .card:hover .actions {
-    opacity: 1;
-  }
-`;
+```html
+<head>
+  <style data-mantle="m-1">
+    .m-1 .picker { background: hsl(180, 70%, 50%); }
+    .m-1 .picker:hover { transform: scale(1.02); }
+  </style>
+  <style data-mantle="m-2">
+    .m-2 .picker { background: hsl(220, 60%, 40%); }
+    .m-2 .picker:hover { transform: scale(1.02); }
+  </style>
+</head>
 ```
 
-### The Component File
+### Automatic Scoping
+
+Each component instance gets a unique class (e.g., `m-1`, `m-2`). The framework wraps your CSS in that class, and CSS nesting does the rest:
 
 ```tsx
-// Card.tsx
-import { Component, createComponent } from 'mantle-web';
-import styles from './Card.styles';
-
-export class Card extends Component<{ 
-  title: string;
-  highlighted?: boolean;
-}> {
-  static styles = styles;
-  
-  render() {
-    // Scoping class auto-applied to root element
-    return (
-      <div class={`card ${this.props.highlighted ? 'highlighted' : ''}`}>
-        <div class="header">
-          {this.props.title}
-          <span class="actions">
-            <button>Edit</button>
-            <button>Delete</button>
-          </span>
-        </div>
-        <div class="body">
-          {this.props.children}
-        </div>
-        <div class="footer">
-          <Button>Cancel</Button>
-          <Button primary>Save</Button>
-        </div>
-      </div>
-    );
-  }
-}
-
-export default createComponent(Card);
-```
-
-### How It Works
-
-1. Style file exports a function: `($: Component) => css\`...\``
-2. Function receives component instance — access `$.props`, `$.state`, etc.
-3. Goober generates a unique scoping class (e.g., `go3x7k`)
-4. All selectors (`.card`, `.header`, `.body`) are scoped under that class
-
-### Generated CSS
-
-```css
-.go3x7k .card {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-}
-.go3x7k .header {
-  padding: 16px;
-  border-bottom: 1px solid #eee;
-}
-.go3x7k .body {
-  padding: 16px;
-}
-/* etc. */
-```
-
-All selectors scoped — no collisions with other components.
-
-### When to Use
-
-- Large components with many styled elements
-- Team prefers styles separate from logic
-- Designer/developer collaboration
-- Styles that might be shared or themed
-
----
-
-## Comparison
-
-| Pattern | Location | Best For |
-|---------|----------|----------|
-| `get styles()` | Inline in component | Simple components, tight coupling |
-| External file | Separate `.styles.ts` | Complex components, team separation |
-| `styled()` components | Inline or file | Standalone elements, quick prototyping |
-
-All patterns use explicit class targeting — no magic auto-apply.
-
----
-
-## Dynamic Styles
-
-All patterns support dynamic values via MobX observables:
-
-```tsx
-// Inline getter
+// You write:
 get styles() {
-  return css`
-    opacity: ${this.loading ? 0.5 : 1};
-    transform: ${this.expanded ? 'scale(1.02)' : 'none'};
+  return `
+    .card { background: white; }
+    .header { font-weight: bold; }
   `;
 }
 
-// External file
-export default ($: Component) => css`
-  background: ${$.props.variant === 'danger' ? '#dc3545' : '#007bff'};
-  width: ${$.width}px;
-`;
+// Framework wraps it:
+// .m-42 { .card { background: white; } .header { font-weight: bold; } }
+
+// Browser's CSS nesting expands to:
+// .m-42 .card { background: white; }
+// .m-42 .header { font-weight: bold; }
+
+// Your root element gets the scope class:
+// <div class="m-42 card">...</div>
 ```
 
-MobX tracks which observables are accessed. When they change, only affected components re-render, and Goober generates new classes only if the CSS actually changed.
+The scope class (`m-42`) is automatically added to the root element by the framework during render.
+
+### Implementation (~30 lines)
+
+```tsx
+let instanceId = 0;
+
+class Component<P> {
+  private _styleEl: HTMLStyleElement | null = null;
+  private _scopeClass = `m-${instanceId++}`;
+  
+  // Override in subclass
+  get styles(): string | null {
+    return null;
+  }
+  
+  // Called by framework during render
+  _applyStyles() {
+    const css = this.styles;
+    if (!css) return;
+    
+    if (!this._styleEl) {
+      this._styleEl = document.createElement('style');
+      this._styleEl.setAttribute('data-mantle', this._scopeClass);
+      document.head.appendChild(this._styleEl);
+    }
+    
+    // Wrap in scope class — CSS nesting handles the rest!
+    // .m-42 { .card { ... } } → .m-42 .card { ... }
+    const scoped = `.${this._scopeClass} { ${css} }`;
+    
+    // Replace (not append!) the style content
+    this._styleEl.textContent = scoped;
+  }
+  
+  onUnmount() {
+    this._styleEl?.remove();
+  }
+}
+```
+
+The key insight: **CSS nesting does the scoping for us**. By wrapping the user's CSS in `.m-42 { ... }`, the browser automatically prefixes all nested selectors with `.m-42`.
+
+### Why Per-Instance Works
+
+| Concern | Reality |
+|---------|---------|
+| "Too many `<style>` elements?" | Browsers handle hundreds easily. Shadow DOM does this by design. |
+| "Performance of textContent update?" | Fast — browser re-parses only that small stylesheet |
+| "Memory?" | Minimal — each element is tiny |
+| "DevTools clutter?" | Filterable by `data-mantle` attribute |
 
 ---
 
-## Nested Selectors Reference
+## Full CSS Support
 
-Goober supports SCSS-like nesting:
+Unlike some CSS-in-JS approaches, you get full CSS:
+
+### Pseudo-Selectors
 
 ```tsx
-css`
-  /* Pseudo-classes */
-  &:hover { }
-  &:focus { }
-  &:active { }
-  &:disabled { }
-  
-  /* Pseudo-elements */
-  &::before { }
-  &::after { }
-  
-  /* Child selectors */
-  .child { }
-  > .direct-child { }
-  
-  /* State-based children */
-  &:hover .icon { }
-  &.active .label { }
-  
-  /* Media queries */
-  @media (max-width: 768px) {
-    padding: 8px;
-  }
-  
-  /* Conditional blocks */
-  ${condition && `
-    background: red;
-  `}
-`;
+get styles() {
+  return `
+    .btn { background: blue; }
+    .btn:hover { background: darkblue; }
+    .btn:focus { outline: 2px solid #007bff; }
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.5; }
+    .btn::before { content: '→'; }
+  `;
+}
+```
+
+### Media Queries
+
+```tsx
+get styles() {
+  return `
+    .card { padding: 24px; }
+    
+    @media (max-width: 768px) {
+      .card { padding: 12px; }
+    }
+    
+    @media (prefers-color-scheme: dark) {
+      .card { background: #1a1a1a; color: white; }
+    }
+  `;
+}
+```
+
+### Animations
+
+```tsx
+get styles() {
+  return `
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    
+    .spinner {
+      animation: spin 1s linear infinite;
+    }
+  `;
+}
+```
+
+### Complex Selectors
+
+```tsx
+get styles() {
+  return `
+    .card { }
+    .card.highlighted { box-shadow: 0 0 0 2px blue; }
+    .card:hover .actions { opacity: 1; }
+    .card > .header { }
+    .card .header + .body { }
+    .list > .item:nth-child(odd) { }
+  `;
+}
+```
+
+---
+
+## React-Style Inline Objects
+
+For simple dynamic values, you can also use React-style inline objects:
+
+```tsx
+render() {
+  return (
+    <div 
+      class="card"
+      style={{
+        opacity: this.loading ? 0.5 : 1,
+        transform: this.expanded ? 'scale(1.02)' : 'none',
+      }}
+    >
+      {this.props.children}
+    </div>
+  );
+}
+```
+
+The `h()` factory converts style objects to `el.style` assignments:
+
+```ts
+// Numbers auto-append 'px' for appropriate properties
+style={{ padding: 16 }}        // → padding: 16px
+style={{ opacity: 0.5 }}       // → opacity: 0.5 (unitless)
+style={{ zIndex: 100 }}        // → z-index: 100 (unitless)
+```
+
+### When to Use Each
+
+| Approach | Best For |
+|----------|----------|
+| `get styles()` | Pseudo-selectors, media queries, animations, complex selectors |
+| `style={{}}` | Simple dynamic values, one-off overrides |
+
+You can combine both:
+
+```tsx
+get styles() {
+  return `
+    .card { 
+      padding: 16px;
+      transition: opacity 0.2s;
+    }
+    .card:hover { transform: scale(1.02); }
+  `;
+}
+
+render() {
+  return (
+    <div 
+      class="card"
+      style={{ opacity: this.loading ? 0.5 : 1 }}
+    >
+      ...
+    </div>
+  );
+}
 ```
 
 ---
 
 ## SSR Support
 
-Goober handles SSR via `extractCss()`:
+### Server-Side
+
+During SSR, component styles are collected and output in the HTML:
 
 ```tsx
 // Server
-import { renderToString } from 'mantle-web/ssr';
-import { extractCss } from 'mantle-web';
+import { renderToString, extractStyles } from 'mantle-web/ssr';
 
 const html = renderToString(App, props);
-const css = extractCss();  // Only styles for rendered components
+const styles = extractStyles();  // All component styles
 
 res.send(`
   <!DOCTYPE html>
   <html>
     <head>
-      <style id="_goober">${css}</style>
+      <style id="_mantle-ssr">${styles}</style>
     </head>
     <body>${html}</body>
   </html>
 `);
 ```
 
-On hydration, Goober recognizes existing styles and doesn't duplicate them.
+### Hydration
+
+On the client, components adopt their SSR styles initially. On first state change, they create their own `<style>` elements:
+
+```tsx
+// Client behavior:
+// 1. Hydration: Uses styles from SSR <style> block
+// 2. First update: Creates per-instance <style> element
+// 3. Subsequent updates: Updates that element's textContent
+```
 
 ---
 
-## Implementation Details
+## Comparison
 
-### Goober Setup (Internal)
+| Feature | Mantle | Goober/Emotion | CSS Modules | Tailwind |
+|---------|--------|----------------|-------------|----------|
+| Reactive values | ✅ Direct | ✅ Via regeneration | ❌ No | ❌ No |
+| SCSS-like nesting | ✅ Native CSS | ✅ Runtime | ✅ Build step | ❌ No |
+| Pseudo-selectors | ✅ | ✅ | ✅ | ✅ |
+| Media queries | ✅ | ✅ | ✅ | ✅ |
+| Animations | ✅ | ✅ | ✅ | ⚠️ Limited |
+| No build step | ✅ | ✅ | ❌ | ❌ |
+| No runtime | ❌ (~30 lines) | ❌ (~1-6KB) | ✅ | ✅ |
+| No style leak | ✅ | ⚠️ Can leak | ✅ | ✅ |
+| Bundle size | ~0KB | ~1-6KB | ~0KB | ~0KB |
 
-Mantle initializes Goober automatically — users never see this:
+### Browser Support
 
-```tsx
-// mantle-web/styling.ts (internal)
-import { setup, css, styled as gooberStyled, keyframes, extractCss } from 'goober';
-import { h } from './h';
+CSS nesting is supported in all major browsers since late 2023:
+- Chrome 120+ (Dec 2023)
+- Firefox 117+ (Aug 2023)
+- Safari 17.2+ (Dec 2023)
+- Edge 120+ (Dec 2023)
 
-// Auto-setup when module loads
-setup(h);
-
-// Re-export for users
-export { css, keyframes, extractCss };
-export const styled = gooberStyled;
-```
-
-### How Scoping Works
-
-Goober's `css` returns a generated class name. All selectors in the template are scoped under that class:
-
-```tsx
-const scopeClass = css`
-  .card { background: white; }
-  .header { font-weight: bold; }
-`;
-// scopeClass = "go3x7k"
-
-// Generated CSS:
-// .go3x7k .card { background: white; }
-// .go3x7k .header { font-weight: bold; }
-```
-
-### Auto-Apply to Root Element
-
-When you define `get styles()` or `static styles`, `createComponent` automatically merges the scoping class with the root element's existing classes:
-
-```tsx
-get styles() {
-  return css`
-    .card { background: white; }
-    .header { font-weight: bold; }
-  `;
-}
-
-render() {
-  // Root element gets scoping class auto-applied
-  // <div class="card"> becomes <div class="go3x7k card">
-  return (
-    <div class="card">
-      <div class="header">...</div>
-    </div>
-  );
-}
-```
-
-### Implementation (~15 lines)
-
-```tsx
-// In createComponent
-const originalRender = instance.render.bind(instance);
-const staticStylesFn = ComponentClass.styles;
-
-instance.render = () => {
-  const result = originalRender();
-  let scopeClass = '';
-  
-  // Get scoping class from getter or static styles
-  if ('styles' in instance) {
-    scopeClass = (instance as any).styles;
-  } else if (staticStylesFn) {
-    scopeClass = staticStylesFn(instance);
-  }
-  
-  // Merge with root element's existing class
-  if (scopeClass) {
-    result.props.class = result.props.class 
-      ? `${scopeClass} ${result.props.class}`
-      : scopeClass;
-  }
-  
-  return result;
-};
-```
-
-### The Mental Model
-
-Same as Vue/Svelte scoped styles:
-1. Framework auto-applies scoping to root element
-2. You target all elements with explicit selectors (`.card`, `.header`, etc.)
-3. No extra wrapper divs needed
+For older browsers, you can either avoid nesting (write flat CSS) or use a PostCSS transform at build time.
 
 ---
 
 ## Summary
 
-1. **Simple components:** Use `get styles()` inline
-2. **Complex components:** Use external `.styles.ts` file with `static styles`
-3. **Standalone elements:** Use `styled()` components
-4. **Auto-apply:** Scoping class automatically applied to root element
-5. **Explicit selectors:** Target all elements via class selectors (like Vue/Svelte)
-6. **Goober handles:** Nesting, scoping, SSR, caching
-7. **MobX handles:** Reactive updates when observables change
+1. **Define styles** with `get styles()` returning a template string
+2. **Use observables** directly — styles update automatically
+3. **Native CSS nesting** — SCSS-like syntax, no preprocessor
+4. **Automatic scoping** — framework wraps CSS in scope class
+5. **No leaks** — styles replace, not accumulate
+6. **Full CSS** — pseudo-selectors, media queries, animations
+7. **Optional inline styles** — `style={{}}` for simple cases
+8. **Zero dependencies** — no Goober, Emotion, etc.
 
-Same mental model as Vue/Svelte scoped styles — auto-scoping + explicit selectors.
-
-The styling system is ~15 lines of framework code + Goober.
+The mental model: Each component owns its styles. When state changes, styles update. When the component unmounts, styles are removed. CSS nesting handles scoping. Simple.
